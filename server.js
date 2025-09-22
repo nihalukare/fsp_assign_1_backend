@@ -56,8 +56,8 @@ app.post("/api/auth/signup", async (req, res) => {
         message: `User with email ${error.keyValue.email} already exists.`,
       });
     }
-
-    return res.status(500).json({ message: "Internal Server Error", error });
+    console.log(error);
+    return res.status(500).json({ message: "Internal Server Error" });
   }
 });
 
@@ -81,7 +81,8 @@ app.post("/api/auth/login", async (req, res) => {
     const token = jwt.sign({ email }, JWT_SECRET, { expiresIn: "24h" });
     return res.status(200).json({ message: "Credentials Vaild!", token });
   } catch (error) {
-    res.status(500).json({ message: "Internal Server Error", error });
+    console.log(error);
+    res.status(500).json({ message: "Internal Server Error" });
     return;
   }
 });
@@ -94,7 +95,8 @@ app.get("/api/auth/me", verifyJWT, async (req, res) => {
 
     res.status(200).json({ name: userDetails.name, email: userDetails.email });
   } catch (error) {
-    res.status(500).json({ message: "Internal Server Error.", error });
+    console.log(error);
+    res.status(500).json({ message: "Internal Server Error." });
   }
 });
 
@@ -125,7 +127,8 @@ app.post("/api/tasks", verifyJWT, async (req, res) => {
       return;
     }
   } catch (error) {
-    res.status(500).json({ message: "Internal server error.", error });
+    console.log(error);
+    res.status(500).json({ message: "Internal server error." });
     return;
   }
 });
@@ -150,7 +153,8 @@ app.post("/api/teams", verifyJWT, async (req, res) => {
       data: newTeam,
     });
   } catch (error) {
-    return res.status(500).json({ message: "Internal Server Error.", error });
+    console.log(error);
+    return res.status(500).json({ message: "Internal Server Error." });
   }
 });
 
@@ -173,7 +177,8 @@ app.post("/api/projects", verifyJWT, async (req, res) => {
       .status(201)
       .json({ message: "New project created successfully.", data: newProject });
   } catch (error) {
-    return res.status(500).json({ message: "Internal Server Error.", error });
+    console.log(error);
+    return res.status(500).json({ message: "Internal Server Error." });
   }
 });
 
@@ -207,7 +212,8 @@ app.get("/api/tasks", verifyJWT, async (req, res) => {
       return res.status(404).json({ message: "No Tasks Found." });
     return res.status(200).json({ data: tasks });
   } catch (error) {
-    return res.status(500).json({ message: "Internal Server Error", error });
+    console.log(error);
+    return res.status(500).json({ message: "Internal Server Error" });
   }
 });
 
@@ -225,7 +231,8 @@ app.get("/api/teams", verifyJWT, async (req, res) => {
     }
     return res.status(200).json({ data: teams });
   } catch (error) {
-    return res.status(500).json({ message: "Internal Server Error", error });
+    console.log(error);
+    return res.status(500).json({ message: "Internal Server Error" });
   }
 });
 
@@ -243,7 +250,68 @@ app.get("/api/projects", verifyJWT, async (req, res) => {
     }
     return res.status(200).json({ data: projects });
   } catch (error) {
-    return res.status(500).json({ message: "Internal Server Error", error });
+    console.log(error);
+    return res.status(500).json({ message: "Internal Server Error" });
+  }
+});
+
+// Function to update a task
+const updateTask = async (taskId, taskData) => {
+  const updated = await Task.findByIdAndUpdate(taskId, taskData, {
+    new: true,
+  })
+    .populate("project team owners")
+    .select("-__v");
+
+  if (!updated) return null;
+
+  return {
+    id: String(updated._id),
+    name: updated.name,
+    project: updated.project.name,
+    team: updated.team.name,
+    owners: updated.owners.map((owner) => owner.name),
+    tags: updated.tags,
+    timeToComplete: updated.timeToComplete,
+    status: updated.status,
+    createdAt: updated.createdAt,
+    updatedAt: updated.updatedAt,
+  };
+};
+// API to update a task
+app.put("/api/tasks/:id", verifyJWT, async (req, res) => {
+  try {
+    const updated = await updateTask(req.params.id, req.body);
+
+    if (!updated) {
+      return res.status(404).json({
+        message: "Task not found. Failed to update task.",
+      });
+    }
+
+    return res
+      .status(200)
+      .json({ message: "Task updated successfully.", data: updated });
+  } catch (error) {
+    console.log("Failed to update task:", error);
+    return res.status(500).json({ message: "Internal Server Error." });
+  }
+});
+
+// API to delete a task
+app.delete("/api/tasks/:id", verifyJWT, async (req, res) => {
+  try {
+    const deletedTask = await Task.findByIdAndDelete({ _id: req.params.id });
+
+    if (!deletedTask)
+      return res
+        .status(502)
+        .json({ message: "Failed to delete task something went wrong." });
+
+    return res.status(200).json({ message: "Task deleted successfully." });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ message: "Internal server error." });
   }
 });
 
