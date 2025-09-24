@@ -13,6 +13,7 @@ const User = require("./models/user.model");
 const Task = require("./models/task.model");
 const Team = require("./models/team.model");
 const Project = require("./models/project.model");
+const { default: mongoose } = require("mongoose");
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
@@ -56,7 +57,7 @@ app.post("/api/auth/signup", async (req, res) => {
         message: `User with email ${error.keyValue.email} already exists.`,
       });
     }
-    console.log(error);
+    console.error("POST /api/auth/signup failed:", error);
     return res.status(500).json({ message: "Internal Server Error" });
   }
 });
@@ -81,7 +82,7 @@ app.post("/api/auth/login", async (req, res) => {
     const token = jwt.sign({ email }, JWT_SECRET, { expiresIn: "24h" });
     return res.status(200).json({ message: "Credentials Vaild!", token });
   } catch (error) {
-    console.log(error);
+    console.error("POST /api/auth/login failed:", error);
     res.status(500).json({ message: "Internal Server Error" });
     return;
   }
@@ -89,13 +90,12 @@ app.post("/api/auth/login", async (req, res) => {
 
 app.get("/api/auth/me", verifyJWT, async (req, res) => {
   try {
-    // console.log(req.user);
     const { email } = req.user;
     const userDetails = await User.findOne({ email });
 
     res.status(200).json({ name: userDetails.name, email: userDetails.email });
   } catch (error) {
-    console.log(error);
+    console.error("GET /api/auth/me failed:", error);
     res.status(500).json({ message: "Internal Server Error." });
   }
 });
@@ -127,7 +127,7 @@ app.post("/api/tasks", verifyJWT, async (req, res) => {
       return;
     }
   } catch (error) {
-    console.log(error);
+    console.error("POST /api/tasks failed:", error);
     res.status(500).json({ message: "Internal server error." });
     return;
   }
@@ -153,7 +153,7 @@ app.post("/api/teams", verifyJWT, async (req, res) => {
       data: newTeam,
     });
   } catch (error) {
-    console.log(error);
+    console.error("POST /api/teams failed:", error);
     return res.status(500).json({ message: "Internal Server Error." });
   }
 });
@@ -177,7 +177,7 @@ app.post("/api/projects", verifyJWT, async (req, res) => {
       .status(201)
       .json({ message: "New project created successfully.", data: newProject });
   } catch (error) {
-    console.log(error);
+    console.error("POST /api/projects failed:", error);
     return res.status(500).json({ message: "Internal Server Error." });
   }
 });
@@ -189,10 +189,12 @@ app.get("/", (req, res) => {
 // Function to Read all tasks
 const getTasks = async () => {
   const tasks = await Task.find()
-    .populate("project team owners", "name -_id")
-    .select("-__v");
+    .populate("project team owners")
+    .select("-__v")
+    .lean();
+
   return tasks.map((task) => ({
-    id: task._id,
+    id: String(task._id),
     name: task.name,
     project: task.project.name,
     team: task.team.name,
@@ -208,18 +210,16 @@ const getTasks = async () => {
 app.get("/api/tasks", verifyJWT, async (req, res) => {
   try {
     const tasks = await getTasks();
-    if (!tasks.length)
-      return res.status(404).json({ message: "No Tasks Found." });
     return res.status(200).json({ data: tasks });
   } catch (error) {
-    console.log(error);
+    console.error("GET /api/tasks failed:", error);
     return res.status(500).json({ message: "Internal Server Error" });
   }
 });
 
 // Function to read all teams
 const getTeams = async () => {
-  const teams = await Team.find().select("-__v");
+  const teams = await Team.find().select("-__v").lean();
   return teams;
 };
 // API to fetch all teams
@@ -231,14 +231,14 @@ app.get("/api/teams", verifyJWT, async (req, res) => {
     }
     return res.status(200).json({ data: teams });
   } catch (error) {
-    console.log(error);
+    console.error("GET /api/teams failed:", error);
     return res.status(500).json({ message: "Internal Server Error" });
   }
 });
 
 // Function to read all projects
 const getProjects = async () => {
-  const projects = await Project.find().select("-__v");
+  const projects = await Project.find().select("-__v").lean();
   return projects;
 };
 // API to fetch all projects
@@ -250,7 +250,7 @@ app.get("/api/projects", verifyJWT, async (req, res) => {
     }
     return res.status(200).json({ data: projects });
   } catch (error) {
-    console.log(error);
+    console.error("GET /api/projects failed:", error);
     return res.status(500).json({ message: "Internal Server Error" });
   }
 });
@@ -261,7 +261,8 @@ const updateTask = async (taskId, taskData) => {
     new: true,
   })
     .populate("project team owners")
-    .select("-__v");
+    .select("-__v")
+    .lean();
 
   if (!updated) return null;
 
@@ -280,8 +281,13 @@ const updateTask = async (taskId, taskData) => {
 };
 // API to update a task
 app.put("/api/tasks/:id", verifyJWT, async (req, res) => {
+  const { id } = req.params;
+
+  if (!mongoose.Types.ObjectId.isValid(id) && /^[a-fA-F0-9]{24}$/.test(id))
+    return res.status(400).json({ message: "Invalid task id." });
+
   try {
-    const updated = await updateTask(req.params.id, req.body);
+    const updated = await updateTask(id, req.body);
 
     if (!updated) {
       return res.status(404).json({
@@ -293,25 +299,30 @@ app.put("/api/tasks/:id", verifyJWT, async (req, res) => {
       .status(200)
       .json({ message: "Task updated successfully.", data: updated });
   } catch (error) {
-    console.log("Failed to update task:", error);
+    console.error("PUT /api/tasks/:id failed:", error);
     return res.status(500).json({ message: "Internal Server Error." });
   }
 });
 
 // API to delete a task
 app.delete("/api/tasks/:id", verifyJWT, async (req, res) => {
+  const { id } = req.params;
+
+  if (!mongoose.Types.ObjectId.isValid(id) && /^[a-fA-F0-9]{24}$/.test(id))
+    return res.status(400).json({ message: "Invalid task id." });
+
   try {
-    const deletedTask = await Task.findByIdAndDelete({ _id: req.params.id });
+    const deletedTask = await Task.findByIdAndDelete({ _id: id });
 
     if (!deletedTask)
       return res
-        .status(502)
-        .json({ message: "Failed to delete task something went wrong." });
+        .status(404)
+        .json({ message: "Task not found. Failed to delete task." });
 
     return res.status(200).json({ message: "Task deleted successfully." });
   } catch (error) {
-    console.log(error);
-    res.status(500).json({ message: "Internal server error." });
+    console.error("DELETE /api/tasks/:id failed:", error);
+    return res.status(500).json({ message: "Internal server error." });
   }
 });
 
