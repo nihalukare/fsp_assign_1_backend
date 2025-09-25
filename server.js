@@ -187,8 +187,8 @@ app.get("/", (req, res) => {
 });
 
 // Function to Read all tasks
-const getTasks = async () => {
-  const tasks = await Task.find()
+const getTasks = async (filters) => {
+  const tasks = await Task.find(filters)
     .populate("project team owners")
     .select("-__v")
     .lean();
@@ -208,8 +208,24 @@ const getTasks = async () => {
 };
 // API to fetch all tasks
 app.get("/api/tasks", verifyJWT, async (req, res) => {
+  const { owner, team, project, tags, status } = req.query;
+  const filters = {};
+
+  if (owner && mongoose.Types.ObjectId.isValid(owner))
+    filters.owners = mongoose.Types.ObjectId(owner);
+
+  if (team && mongoose.Types.ObjectId.isValid(team))
+    filters.team = mongoose.Types.ObjectId(team);
+
+  if (project && mongoose.Types.ObjectId.isValid(project))
+    filters.project = mongoose.Types.ObjectId(project);
+
+  if (tags) filters.tags = { $in: tags };
+
+  if (status) filters.status = status;
+
   try {
-    const tasks = await getTasks();
+    const tasks = await getTasks(filters);
     return res.status(200).json({ data: tasks });
   } catch (error) {
     console.error("GET /api/tasks failed:", error);
@@ -283,7 +299,7 @@ const updateTask = async (taskId, taskData) => {
 app.put("/api/tasks/:id", verifyJWT, async (req, res) => {
   const { id } = req.params;
 
-  if (!mongoose.Types.ObjectId.isValid(id) && /^[a-fA-F0-9]{24}$/.test(id))
+  if (!mongoose.Types.ObjectId.isValid(id))
     return res.status(400).json({ message: "Invalid task id." });
 
   try {
@@ -308,7 +324,7 @@ app.put("/api/tasks/:id", verifyJWT, async (req, res) => {
 app.delete("/api/tasks/:id", verifyJWT, async (req, res) => {
   const { id } = req.params;
 
-  if (!mongoose.Types.ObjectId.isValid(id) && /^[a-fA-F0-9]{24}$/.test(id))
+  if (!mongoose.Types.ObjectId.isValid(id))
     return res.status(400).json({ message: "Invalid task id." });
 
   try {
