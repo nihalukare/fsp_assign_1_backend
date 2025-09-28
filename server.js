@@ -1,5 +1,6 @@
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcrypt");
+const mongoose = require("mongoose");
 const cors = require("cors");
 require("dotenv").config();
 const express = require("express");
@@ -13,7 +14,7 @@ const User = require("./models/user.model");
 const Task = require("./models/task.model");
 const Team = require("./models/team.model");
 const Project = require("./models/project.model");
-const { default: mongoose } = require("mongoose");
+const Tag = require("./models/tag.model");
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
@@ -182,6 +183,35 @@ app.post("/api/projects", verifyJWT, async (req, res) => {
   }
 });
 
+// Function to add new tags
+const createNewTag = async (tagData) => {
+  const newTag = new Tag(tagData);
+  const savedNewTag = await newTag.save();
+  return {
+    id: savedNewTag._id,
+    name: savedNewTag.name,
+  };
+};
+// API to add new tags
+app.post("/api/tags", verifyJWT, async (req, res) => {
+  try {
+    const newTag = await createNewTag(req.body);
+    return res
+      .status(201)
+      .json({ message: "New tag created successfully.", tag: newTag });
+  } catch (error) {
+    console.error("POST /api/tags failed:", error);
+
+    if (error.code === 11000) {
+      return res.status(409).json({
+        message: `Tag with name value '${error.keyValue.name}' already exists.`,
+      });
+    }
+
+    return res.status(500).json({ message: "Internal Server Error." });
+  }
+});
+
 app.get("/", (req, res) => {
   res.send("Server is running!");
 });
@@ -271,6 +301,17 @@ app.get("/api/projects", verifyJWT, async (req, res) => {
   }
 });
 
+// API to fetch all tags
+app.get("/api/tags", verifyJWT, async (req, res) => {
+  try {
+    const tags = await Tag.find().select("-__v").lean();
+    return res.status(200).json({ tags });
+  } catch (error) {
+    console.error("GET /api/tags failed:", error);
+    return res.status(500).json({ message: "Internal Server Error." });
+  }
+});
+
 // Function to update a task
 const updateTask = async (taskId, taskData) => {
   const updated = await Task.findByIdAndUpdate(taskId, taskData, {
@@ -339,6 +380,93 @@ app.delete("/api/tasks/:id", verifyJWT, async (req, res) => {
   } catch (error) {
     console.error("DELETE /api/tasks/:id failed:", error);
     return res.status(500).json({ message: "Internal server error." });
+  }
+});
+
+/** Reporting APIs **/
+// Function to get tasks completed last week.
+const tasksCompletedLastWeek = async () => {
+  const dateSevenDaysAgo = new Date();
+  dateSevenDaysAgo.setDate(dateSevenDaysAgo.getDate() - 7);
+  dateSevenDaysAgo.setHours(0, 0, 0, 0);
+
+  const tasks = await Task.find({
+    status: "Completed",
+    updatedAt: { $gte: dateSevenDaysAgo },
+  })
+    .select("-__v")
+    .lean();
+
+  return tasks;
+};
+// API to fetch tasks completed last week
+app.get("/api/report/last-week", verifyJWT, async (req, res) => {
+  try {
+    const tasks = await tasksCompletedLastWeek();
+    return res.status(200).json({ tasks });
+  } catch (error) {
+    console.error("GET /api/report/last-week failed:", error);
+    return res.status(500).json({ message: "Internal Server Error." });
+  }
+});
+
+// Function to get total days of pending for all tasks
+const totalPendingDays = async () => {
+  const tasks = await Task.find({ status: { $ne: "Completed" } })
+    .select("-__v")
+    .lean();
+
+  const totalDays = tasks.reduce((acc, task) => acc + task.timeToComplete, 0);
+  return totalDays;
+};
+// API to fetch pending reports
+app.get("/api/report/pending", verifyJWT, async (req, res) => {
+  try {
+    const totalDays = await totalPendingDays();
+    return res.status(200).json({ totalDays });
+  } catch (error) {
+    console.error("GET /api/report/pending failed:", error);
+    return res.status(500).json({ message: "Internal Server Error." });
+  }
+});
+
+// Function to get number of tasks closed
+const getClosedTasks = async (groupBy) => {
+  const tasks = await Task.find({ status: "Completed" }).select(`-__v`).lean();
+  const distinctIds = await Task.distinct(groupBy);
+
+  const tasksGroupedBy = distinctIds.map((id) => {
+    const filteredTasks = tasks.filter(
+      (task) => task[groupBy].toString() === id.toString()
+    );
+
+    return {
+      [`${groupBy}Id`]: id,
+      count: filteredTasks.length,
+      tasks: filteredTasks.map((task) => ({
+        taskId: task._id,
+        name: task.name,
+      })),
+    };
+  });
+
+  return tasksGroupedBy;
+};
+
+// API to fetch number of tasks closed
+app.get("/api/report/closed-tasks", verifyJWT, async (req, res) => {
+  const { groupBy } = req.query;
+  const VALID_GROUPS = ["team", "project", "owners"];
+  try {
+    if (!VALID_GROUPS.includes(groupBy))
+      return res.status(400).json({ message: "Invalid Query Params." });
+
+    const tasks = await getClosedTasks(groupBy);
+
+    return res.status(200).json({ groupBy, results: tasks });
+  } catch (error) {
+    console.error("GET /api/report/closed-tasks failed:", error);
+    return res.status(500).json({ message: "Internal Server Error." });
   }
 });
 
