@@ -142,6 +142,7 @@ const createNewTeam = async (team) => {
   return {
     id: savedNewTeam._id,
     name: savedNewTeam.name,
+    members: savedNewTeam.members,
     description: savedNewTeam.description,
   };
 };
